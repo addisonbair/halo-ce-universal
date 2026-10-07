@@ -2,7 +2,7 @@
 
 No game assets needed. The C side (object_bounds_cache.c) holds the world and the cases; this takes the
 code under test from the sources: collision_get_features_in_sphere and object_get_features_in_sphere (collisions.c),
-the point_in_sphere they test with (real_math.h) and the cache (object_bounds_cache.c).
+the point_in_sphere they test with (real_math.h), the cache (object_bounds_cache.c) and the game's enums.
 
 Cases: the cache gathers exactly the features the objects themselves give, in order ("identical"); still so after
 objects move with the cache told ("moving"); the comparison sees a stale cache ("detects-stale"); an invalidated cache
@@ -18,7 +18,7 @@ from pathlib import Path
 import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
-from harness import build, enum_with, function, inline, mutated, read, run  # noqa: E402
+from harness import build, constant, enum_with, function, inline, mutated, read, run  # noqa: E402
 
 CASES = ["identical", "moving", "detects-stale", "invalidated"]
 
@@ -29,20 +29,26 @@ NEGATIVE_CONTROLS = {
 }
 
 
+# the game's enums the fake world and the code under test use: (header, a member of the enum)
+ENUMS = [("source/objects/object_types.h", "_object_type_biped"), ("source/objects/objects.h", "_object_invisible_bit"),
+         ("source/objects/objects.h", "_object_dead_bit"), ("source/units/bipeds.h", "_biped_airborne_bit"),
+         ("source/physics/collision_features.h", "_collision_feature_sphere"),
+         ("source/physics/collisions.h", "_collision_test_structure_bit")]
+
+
 def under_test(fault=None):
+    enums = "\n".join(enum_with(read(header), member) for header, member in ENUMS)
+    enums += f"\n#define MAXIMUM_OBJECTS_PER_MAP {constant(read('port/linux/include/halo_port_capacity.h'), 'HALO_PORT_MAXIMUM_OBJECTS_PER_MAP')}\n"
     real_math = read("source/math/real_math.h")
-    collisions = read("source/physics/collisions.c")
+    text = "".join(inline(real_math, helper) + "\n"
+                   for helper in ("vector_from_points3d", "magnitude_squared3d", "distance_squared3d", "point_in_sphere"))
     cache = read("port/linux/game/object_bounds_cache.c")
     cache = cache[cache.rindex("#include"):].split("\n", 1)[1]
-    if fault:
-        cache = mutated(cache, *fault)
-    text = enum_with(read("source/physics/collisions.h"), "_collision_test_structure_bit") + "\n"
-    for helper in ("vector_from_points3d", "magnitude_squared3d", "distance_squared3d", "point_in_sphere"):
-        text += inline(real_math, helper) + "\n"
-    text += cache + "\n"
+    text += (mutated(cache, *fault) if fault else cache) + "\n"
+    collisions = read("source/physics/collisions.c")
     text += function(collisions, "object_get_features_in_sphere") + "\n"
     text += function(collisions, "collision_get_features_in_sphere") + "\n"
-    return (("under_test.inc", text),)
+    return (("enums.inc", enums), ("under_test.inc", text))
 
 
 @pytest.mark.parametrize("case", CASES)

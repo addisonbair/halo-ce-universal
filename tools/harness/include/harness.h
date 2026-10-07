@@ -25,6 +25,7 @@ typedef unsigned short word;
 #define TRUE 1
 #define FALSE 0
 #define NONE (-1)
+#define UNSIGNED_LONG_MAX 0xFFFFFFFFUL
 #define FLAG(b) (1<<(b))
 #define TEST_FLAG(flags, bit) (((flags)&(unsigned)FLAG(bit))!=0)
 #define SET_FLAG(f, b, v) ((v) ? ((f)|=(unsigned)FLAG(b)) : ((f)&=(unsigned)~FLAG(b)))

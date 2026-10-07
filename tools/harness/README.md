@@ -28,7 +28,10 @@ A test is two files side by side in `tools/harness/tests`.
 or changed), and the named case must fail. A test that cannot fail proves nothing: writing these found a case that
 compared the cache against itself. When a control stops applying (the line it changes is gone), it fails loudly.
 
-The fake world needs only the members the code reads; a renamed member is a compile error, not a silent drift.
+The fake world needs only the members the code reads; a renamed member is a compile error, not a silent drift. Take
+the game's enums and constants from the sources too (`enum_with`, `constant`) rather than copying their values, and
+stub what the code calls as macros that name only the arguments they use, so an unrelated change to a signature
+leaves the test alone.
 
 ## Examples
 
