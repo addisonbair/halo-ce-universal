@@ -68,9 +68,8 @@ jobs:
 
       - name: Test
         run: |
-          python -m pytest -q tools/test_linux_port.py
+          python -m pytest -q tools/test_linux_port.py tools/harness
           python tools/test_light_storage.py
-          python tools/test_object_bounds_cache.py
 
       - name: Compile cache
         run: ccache --show-stats

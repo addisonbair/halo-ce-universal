@@ -1,61 +1,15 @@
-"""Run collision's real object loop over a fake crowded world, with and without the object bounds cache.
+/*
+OBJECT_BOUNDS_CACHE.C (test)
 
-No game assets needed. collision_get_features_in_sphere and object_get_features_in_sphere (collisions.c), the
-point_in_sphere they test with (real_math.h) and the cache (object_bounds_cache.c) are compiled as they are, against
-a seeded world of clusters and a few hundred objects (bipeds, scenery, vehicles; some invisible, without collisions,
-dead, or with children), and every feature the queries gather is recorded in order. With the cache the features must
-be the same, in the same order, before and after objects move (through the cache's update, as
-object_compute_node_matrices calls it). The negative control moves an object without telling the cache: the features
-must then differ, proving the comparison sees a stale copy, and agree again once the cache is invalidated (as a
-reverted or loaded game state invalidates it). The speed of both is printed, not checked.
-"""
+Collision's real object loop (collisions.c's collision_get_features_in_sphere and object_get_features_in_sphere) over
+a fake world of clusters and 600 objects, most packed into one cluster as a carrier swarm is (bipeds, scenery,
+vehicles; some invisible, without collisions, dead, or carrying a child), with and without the object bounds cache
+(port/linux/game/object_bounds_cache.c). Every feature gathered is recorded in order. The real code is in
+under_test.inc (tools/test_object_bounds_cache.py takes it from the sources).
+*/
 
-import argparse
-import re
-import subprocess
-import sys
-import tempfile
-from pathlib import Path
+#include "harness.h"
 
-ROOT = Path(__file__).resolve().parent.parent
-
-
-def function(source, name):
-    match = re.search(r"^(?:static |__inline )?[\w *]+?\b" + re.escape(name) + r"\(\s*[^;{]*\)\s*\{", source, re.M)
-    if not match:
-        raise ValueError(f"Function not found: {name}")
-    end = source.index("{", match.start()) + 1
-    depth = 1
-    while depth:
-        depth += (source[end] == "{") - (source[end] == "}")
-        end += 1
-    return source[match.start():end]
-
-
-def enum_with(source, member):
-    at = source.index(member)
-    start = source.rindex("enum", 0, at)
-    return source[start:source.index("};", at) + 2]
-
-
-PRELUDE = r'''
-#include <stdio.h>
-#include <stdlib.h>
-#include <string.h>
-#include <time.h>
-#include <limits.h>
-
-typedef float real;
-typedef int boolean;
-typedef unsigned char byte;
-#define TRUE 1
-#define FALSE 0
-#define NONE (-1)
-#define FLAG(b) (1<<(b))
-#define TEST_FLAG(flags, bit) (((flags)&(unsigned)FLAG(bit))!=0)
-typedef struct { real x, y, z; } real_point3d;
-typedef struct { real i, j, k; } real_vector3d;
-#define DATUM_INDEX_TO_ABSOLUTE_INDEX(index) ((index) & 0xFFFF)
 
 enum { _object_type_biped, _object_type_vehicle, _object_type_weapon, _object_type_equipment, _object_type_garbage,
 	_object_type_projectile, _object_type_scenery, _object_type_machine, _object_type_control };
@@ -227,9 +181,9 @@ static void collision_log_usage(int function) {}
 static void collision_log_start_time(void *time) {}
 static void collision_log_end_time(int function, long long start) {}
 static boolean debug_collision_skip_objects = FALSE;
-'''
 
-DRIVER = r'''
+#include "under_test.inc"
+
 static unsigned long seed = 12345;
 static real random_real(real low, real high)
 {
@@ -389,91 +343,87 @@ static void move_some(int with_cache)
 	rebuild_clusters();
 }
 
-int main(void)
+
+static void tell_cache_all(void)
 {
-	unsigned long without, with;
-	double without_seconds, with_seconds, ignored;
 	long index;
+
+	for (index = 0; index < object_count; index++)
+		tell_cache(object_indices[index]);
+}
+
+/* the features every query gathers from the objects themselves: the cache emptied directly (not through its own
+code, which may be the fault), so no entry is used, as before the cache */
+static unsigned long features_from_objects(double *seconds)
+{
+	long index;
+
+	for (index = 0; index < MAXIMUM_OBJECTS_PER_MAP; index++)
+		object_bounds[index].object_index = NONE;
+	return run_queries(seconds);
+}
+
+int main(int argc, char **argv)
+{
+	const char *case_name = argc > 1 ? argv[1] : "";
+	unsigned long without, with;
+	double without_seconds, with_seconds;
 
 	build_world();
 	build_queries();
 
-	/* nothing cached: every query reads the objects, as before the cache */
-	object_bounds_cache_invalidate();
-	without = run_queries(&without_seconds);
-	if (!feature_total)
-		return 61;
-	for (index = 0; index < object_count; index++)
-		tell_cache(object_indices[index]);
-	with = run_queries(&with_seconds);
-	if (with != without)
-		return 62;
-
-	/* objects move, the cache told as they do */
-	move_some(TRUE);
-	object_bounds_cache_invalidate();
-	without = run_queries(&ignored);
-	for (index = 0; index < object_count; index++)
-		tell_cache(object_indices[index]);
-	move_some(TRUE);
-	with = run_queries(&ignored);
-	object_bounds_cache_invalidate();
-	without = run_queries(&ignored);
-	if (with != without)
-		return 63;
-
-	/* negative control: objects move behind the cache's back; the comparison must see it */
-	for (index = 0; index < object_count; index++)
-		tell_cache(object_indices[index]);
-	move_some(FALSE);
-	with = run_queries(&ignored);
-	object_bounds_cache_invalidate();
-	without = run_queries(&ignored);
-	if (with == without)
-		return 64;
-	/* and a reverted game state invalidates it: the same again */
-	with = run_queries(&ignored);
-	if (with != without)
-		return 65;
-
-	printf("object bounds cache: %lu features identical; %.1f ms without, %.1f ms with (%.2fx)\n", feature_total,
-		1000.0 * without_seconds, 1000.0 * with_seconds, without_seconds / with_seconds);
-	return 0;
+	/* the cache gathers exactly the features the objects themselves give, in the same order */
+	CASE("identical")
+	{
+		without = features_from_objects(&without_seconds);
+		CHECK(feature_total > 1000, "the queries gathered %lu features; the fake world is too sparse to compare", feature_total);
+		tell_cache_all();
+		with = run_queries(&with_seconds);
+		CHECK(with == without, "features differ with the cache (%08lx, without %08lx)", with, without);
+		printf("%lu features identical\n", feature_total);
+		return 0;
+	}
+	/* objects move, the cache told as they do (object_compute_node_matrices): still identical */
+	CASE("moving")
+	{
+		tell_cache_all();
+		move_some(TRUE);
+		move_some(TRUE);
+		with = run_queries(&with_seconds);
+		without = features_from_objects(&without_seconds);
+		CHECK(with == without, "features differ after objects moved (%08lx, without %08lx)", with, without);
+		return 0;
+	}
+	/* the comparison is sensitive: objects moved behind the cache's back must change the features */
+	CASE("detects-stale")
+	{
+		tell_cache_all();
+		move_some(FALSE);
+		with = run_queries(&with_seconds);
+		without = features_from_objects(&without_seconds);
+		CHECK(with != without, "features did not change although the cache was stale: the comparison sees nothing");
+		return 0;
+	}
+	/* a replaced game state invalidates the cache: the objects are read again, and the features are right */
+	CASE("invalidated")
+	{
+		tell_cache_all();
+		move_some(FALSE);
+		object_bounds_cache_invalidate();
+		with = run_queries(&with_seconds);
+		without = features_from_objects(&without_seconds);
+		CHECK(with == without, "features differ after the cache was invalidated (%08lx, without %08lx)", with, without);
+		return 0;
+	}
+	/* not a check: how long the queries take without and with the cache */
+	CASE("benchmark")
+	{
+		without = features_from_objects(&without_seconds);
+		tell_cache_all();
+		with = run_queries(&with_seconds);
+		printf("%.1f ms without, %.1f ms with (%.2fx)\n", 1000.0 * without_seconds, 1000.0 * with_seconds, without_seconds / with_seconds);
+		return 0;
+	}
+	fprintf(stderr, "unknown case: %s\n", case_name);
+	return 2;
 }
-'''
-
-
-def run(cc):
-    collisions_c = (ROOT / "source/physics/collisions.c").read_text(encoding="latin-1")
-    collisions_h = (ROOT / "source/physics/collisions.h").read_text(encoding="latin-1")
-    real_math = (ROOT / "source/math/real_math.h").read_text(encoding="latin-1")
-    cache = (ROOT / "port/linux/game/object_bounds_cache.c").read_text(encoding="latin-1")
-    cache = cache[cache.rindex("#include"):].split("\n", 1)[1]
-    source = PRELUDE
-    source += enum_with(collisions_h, "_collision_test_structure_bit") + "\n"
-    for helper in ("vector_from_points3d", "magnitude_squared3d", "distance_squared3d"):
-        source += function(real_math, helper).replace("__inline", "static") + "\n"
-    source += function(real_math, "point_in_sphere").replace("__inline", "static") + "\n"
-    source += cache + "\n"
-    source += function(collisions_c, "object_get_features_in_sphere") + "\n"
-    source += function(collisions_c, "collision_get_features_in_sphere") + "\n"
-    source += DRIVER
-    with tempfile.TemporaryDirectory(prefix="halo-bounds-cache-") as directory:
-        work = Path(directory)
-        (work / "probe.c").write_text(source)
-        executable = work / "probe"
-        subprocess.run([cc, "-m32", "-std=gnu99", "-O2", "-w", str(work / "probe.c"), "-o", str(executable)], check=True)
-        result = subprocess.run([str(executable)], capture_output=True, text=True)
-        print(result.stdout.strip())
-        if result.returncode:
-            raise SystemExit(f"object bounds cache test failed: {result.returncode}")
-
-
-def main():
-    parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--cc", default="clang")
-    run(parser.parse_args().cc)
-
-
-if __name__ == "__main__":
-    main()
