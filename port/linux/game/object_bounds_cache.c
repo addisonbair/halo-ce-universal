@@ -1,21 +1,13 @@
 /*
 OBJECT_BOUNDS_CACHE.C
 
-The objects' bounding spheres, packed by absolute index, for collision's object
-loop (collisions.c's collision_get_features_in_sphere). A collision query walks
-every collideable object of every cluster its sphere touches and reads each
-object's bounding sphere to pass over the far ones. In a crowded cluster
-(network co-op's extra enemies: hundreds of Flood in one room, and a carrier
-swarm's infection forms on top) that is hundreds of scattered object reads a
-query, a query for every biped every tick. This array holds the same values,
-written where the object's are (object_compute_node_matrices), so passing over
-a far object reads one cache line.
-
-An entry is used only for the object it was written for (its datum index) and
-only since the game state was last replaced (a revert, a loaded core or game,
-a new map put the objects back behind it); otherwise the query reads the
-object as before. The test is the same point_in_sphere on the same values, so
-the objects passed over, and the features gathered, are exactly the same.
+The objects' bounding spheres packed by absolute index, so collision's object
+loop (collisions.c) passes over the far objects of a crowded cluster without
+reading each one. Written by their only writer (object_compute_node_matrices);
+an entry counts only for its datum index and until the game state is next
+replaced (game_state.c). The same test on the same values: the features
+gathered do not change. (Kept out of the game state, whose layout the saved
+games share.)
 */
 
 #include "cseries.h"

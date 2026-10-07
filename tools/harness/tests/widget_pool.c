@@ -1,10 +1,9 @@
 /*
 WIDGET_POOL.C (test)
 
-The real widget pool (widgets.c's widgets_new, widgets_delete and tag_group_to_widget_type) over a fake world of
-objects that each carry the one light volume widget an assault rifle has (its flashlight beam). The pool's size, the
-widget types' groups and the real functions come from the sources: config.inc and under_test.inc
-(tools/test_widget_pool.py takes them).
+The real widget pool (widgets.c) over fake objects that each carry an assault
+rifle's one light volume widget (its flashlight). test_widget_pool.py takes the
+pool's size, the widget types' groups (config.inc) and the code (under_test.inc).
 */
 
 #include "harness.h"

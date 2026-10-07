@@ -1,12 +1,10 @@
 /*
 OBJECT_BOUNDS_CACHE.C (test)
 
-Collision's real object loop (collisions.c) over a fake crowded world, with and without the object bounds cache
-(port/linux/game/object_bounds_cache.c): the features gathered, in order, must be the same. test_object_bounds_cache.py
-takes the game's enums (enums.inc) and the real code (under_test.inc) from the sources.
-
-The fake world is only what the loop reads. What it calls is stubbed as macros, so a stub names its arguments only
-where it uses them.
+Collision's real object loop (collisions.c) over a fake crowded world, with and
+without the object bounds cache: the features gathered, in order, must be the
+same. test_object_bounds_cache.py takes the enums (enums.inc) and the code
+(under_test.inc) from the sources.
 */
 
 #include "harness.h"

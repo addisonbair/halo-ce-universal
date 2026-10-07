@@ -1,16 +1,4 @@
-"""The real widget pool (widgets.c) over a fake world of objects that each carry a widget.
-
-No game assets needed. The C side (widget_pool.c) holds the world and the cases; this takes the code
-under test from the sources: widgets_new, widgets_delete, tag_group_to_widget_type and widget_type_definition_get,
-with the pool's own size (MAXIMUM_WIDGETS_PER_MAP) and the widget types' tag groups.
-
-Cases: the light volume group is found ("finds-the-type"); rifles past the pool get none, exactly its size do
-("fills-and-refuses", the cause of invisible plasma bolts in big games: 64 slots for 128 players' rifles); deleting
-frees slots for the next ("frees-and-reuses"); a widget whose making fails frees its slot
-("failed-widget-frees-its-slot"). Negative controls: widgets.c with a deliberate fault must fail a case.
-
-    python -m pytest -q tools/harness
-"""
+"""The real widget pool (widgets.c) over fake objects: fills, refuses past its size, frees and reuses its slots."""
 
 import re
 import sys
@@ -19,7 +7,7 @@ from pathlib import Path
 import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
-from harness import build, constant, function, mutated, read, run  # noqa: E402
+from harness import CHECK_FAILED, build, constant, function, mutated, read, run  # noqa: E402
 
 CASES = ["finds-the-type", "fills-and-refuses", "frees-and-reuses", "failed-widget-frees-its-slot"]
 
@@ -48,16 +36,13 @@ def generated(fault=None, faulty_function=None):
 
 @pytest.mark.parametrize("case", CASES)
 def test_case(case):
-    passed, output = run(build("widget_pool", generated()), case)
-    assert passed, output
+    status, output = run(build("widget_pool", generated()), case)
+    assert status == 0, output
 
 
 @pytest.mark.parametrize("control", NEGATIVE_CONTROLS)
 def test_negative_control(control):
     fault, faulty_function, case = NEGATIVE_CONTROLS[control]
-    passed, output = run(build("widget_pool", generated(fault, faulty_function)), case)
-    assert not passed, f"widgets.c with a fault ({control}) passed '{case}': the test cannot see it"
+    status, output = run(build("widget_pool", generated(fault, faulty_function)), case)
+    assert status == CHECK_FAILED, f"widgets.c with a fault ({control}) passed '{case}': the test cannot see it"
 
-
-if __name__ == "__main__":
-    sys.exit(pytest.main(["-q", __file__]))

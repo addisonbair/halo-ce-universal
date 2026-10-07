@@ -1,12 +1,8 @@
 /*
 HARNESS.H
 
-The fake world's base for the asset-free tests (tools/harness): the game's basic types and flag macros as cseries.h
-and real_math.h have them, data arrays that refuse when full as the game's do, and CHECK, which names the file, line,
-condition and a message when a check fails.
-
-A test's .c file includes this, defines the fake world the code under test needs, includes "under_test.inc" (the real
-functions, taken from the sources by the test's Python side), and runs the case named on its command line.
+The asset-free tests' base (tools/harness): the game's basic types, data arrays
+that refuse when full, CHECK (exits CHECK_FAILED, 1) and CASE.
 */
 
 #ifndef HARNESS_H
@@ -16,19 +12,16 @@ functions, taken from the sources by the test's Python side), and runs the case 
 #include <stdlib.h>
 #include <string.h>
 #include <time.h>
-#include <limits.h>
 
 typedef float real;
 typedef int boolean;
 typedef unsigned char byte;
-typedef unsigned short word;
 #define TRUE 1
 #define FALSE 0
 #define NONE (-1)
 #define UNSIGNED_LONG_MAX 0xFFFFFFFFUL
 #define FLAG(b) (1<<(b))
 #define TEST_FLAG(flags, bit) (((flags)&(unsigned)FLAG(bit))!=0)
-#define SET_FLAG(f, b, v) ((v) ? ((f)|=(unsigned)FLAG(b)) : ((f)&=(unsigned)~FLAG(b)))
 #define match_assert(file, line, condition) ((void)0)
 typedef struct { real x, y, z; } real_point3d;
 typedef struct { real i, j, k; } real_vector3d;

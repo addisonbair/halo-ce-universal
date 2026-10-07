@@ -1,15 +1,6 @@
-"""Collision's real object loop over a fake crowded world, with and without the object bounds cache.
+"""Collision's real object loop over a fake crowded world gathers the same features with the object bounds cache.
 
-No game assets needed. The C side (object_bounds_cache.c) holds the world and the cases; this takes the
-code under test from the sources: collision_get_features_in_sphere and object_get_features_in_sphere (collisions.c),
-the point_in_sphere they test with (real_math.h), the cache (object_bounds_cache.c) and the game's enums.
-
-Cases: the cache gathers exactly the features the objects themselves give, in order ("identical"); still so after
-objects move with the cache told ("moving"); the comparison sees a stale cache ("detects-stale"); an invalidated cache
-reads the objects again ("invalidated"). Negative controls: the cache with a deliberate fault must fail a case.
-
-    python -m pytest -q tools/harness                          # every harness test
-    python tools/harness/tests/test_object_bounds_cache.py     # this one, then how fast the cache is
+    python tools/harness/tests/test_object_bounds_cache.py     # the cases, then how fast the cache is
 """
 
 import sys
@@ -18,7 +9,7 @@ from pathlib import Path
 import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
-from harness import build, constant, enum_with, function, inline, mutated, read, run  # noqa: E402
+from harness import CHECK_FAILED, build, constant, enum_with, function, inline, mutated, read, run  # noqa: E402
 
 CASES = ["identical", "moving", "detects-stale", "invalidated"]
 
@@ -53,15 +44,15 @@ def under_test(fault=None):
 
 @pytest.mark.parametrize("case", CASES)
 def test_case(case):
-    passed, output = run(build("object_bounds_cache", under_test()), case)
-    assert passed, output
+    status, output = run(build("object_bounds_cache", under_test()), case)
+    assert status == 0, output
 
 
 @pytest.mark.parametrize("control", NEGATIVE_CONTROLS)
 def test_negative_control(control):
     fault, case = NEGATIVE_CONTROLS[control]
-    passed, output = run(build("object_bounds_cache", under_test(fault)), case)
-    assert not passed, f"the cache with a fault ({control}) passed '{case}': the test cannot see it"
+    status, output = run(build("object_bounds_cache", under_test(fault)), case)
+    assert status == CHECK_FAILED, f"the cache with a fault ({control}) passed '{case}': the test cannot see it"
 
 
 if __name__ == "__main__":

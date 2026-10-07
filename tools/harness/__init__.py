@@ -1,15 +1,7 @@
-"""Asset-free regression tests: the real engine code, compiled against a fake world.
-
-A test has two halves. Its C file (tools/harness/tests/<name>.c) holds the fake world the code under test needs and
-the cases that drive it, checked with CHECK (include/harness.h). Its Python file (tools/test_<name>.py) takes the code
-under test straight from the sources (function, inline, enum_with, constant), so the test always checks what the game
-builds, has build() compile the two together for the game's 32-bit ABI, and runs each case as a pytest test.
-
-Every test also runs its negative controls: the code under test with a deliberate fault (mutate=), which a case must
-catch. A test that cannot fail proves nothing. README.md in this folder walks through a test.
-"""
+"""Asset-free regression tests: the engine's real code compiled against a fake world (README.md)."""
 
 import functools
+import os
 import re
 import subprocess
 import tempfile
@@ -25,11 +17,7 @@ def read(relative):
 
 
 def function(source, name):
-    """A function's definition (static, inline or not), not its prototypes.
-
-    Taken by matching braces, which holds for the engine's sources: no braces inside its strings or comments in
-    the functions these tests take. A function that is not found fails the test at once.
-    """
+    """A function's definition (static, inline or not), taken by matching braces; LookupError if not found."""
     match = re.search(r"^(?:static |__inline )?[\w *]+?\b" + re.escape(name) + r"\(\s*[^;{]*\)\s*\{", source, re.M)
     if not match:
         raise LookupError(f"function not found in the sources: {name}")
@@ -63,7 +51,7 @@ def constant(source, name):
 
 
 def mutated(text, before, after):
-    """The code under test with one deliberate fault, for a negative control; the original must contain it."""
+    """The code with one deliberate fault (a negative control); LookupError once the code no longer has it."""
     if text.count(before) != 1:
         raise LookupError(f"negative control no longer applies (found {text.count(before)} times): {before!r}")
     return text.replace(before, after, 1)
@@ -72,22 +60,27 @@ def mutated(text, before, after):
 _directory = tempfile.TemporaryDirectory(prefix="halo-harness-")
 
 
+CHECK_FAILED = 1  # a case's exit status when a CHECK fails (harness.h)
+
+
 @functools.lru_cache(maxsize=None)
-def build(test, generated, cc="clang"):
-    """Compile tests/<test>.c with the generated includes ((name, text), ...) for the 32-bit ABI; the executable."""
+def build(test, generated):
+    """tests/<test>.c compiled with the generated includes ((name, text), ...) for the game's 32-bit ABI."""
     work = Path(_directory.name) / f"{test}-{abs(hash(generated)):x}"
     work.mkdir(parents=True, exist_ok=True)
     for name, text in generated:
         (work / name).write_text(text)
     executable = work / test
-    command = [cc, "-m32", "-std=gnu99", "-O2", "-Wall", "-Wno-unused-function", "-Wno-unused-variable",
-               "-Wno-incompatible-pointer-types", "-Wno-multichar", "-Wno-parentheses",
-               "-I", str(HARNESS / "include"), "-I", str(work), str(HARNESS / "tests" / f"{test}.c"), "-o", str(executable)]
-    subprocess.run(command, check=True)
+    command = [os.environ.get("CC", "clang"), "-m32", "-std=gnu99", "-O2", "-Wall", "-Werror", "-Wno-unused-function",
+               "-Wno-unused-variable", "-I", str(HARNESS / "include"), "-I", str(work),
+               str(HARNESS / "tests" / f"{test}.c"), "-o", str(executable)]
+    result = subprocess.run(command, capture_output=True, text=True)
+    if result.returncode:
+        raise RuntimeError(f"{test}.c does not compile:\n{result.stderr}")
     return executable
 
 
 def run(executable, case):
-    """Run one case: (passed, output)."""
-    result = subprocess.run([str(executable), case], capture_output=True, text=True)
-    return result.returncode == 0, (result.stdout + result.stderr).strip()
+    """Run one case: (exit status, output)."""
+    result = subprocess.run([str(executable), case], capture_output=True, text=True, timeout=60)
+    return result.returncode, (result.stdout + result.stderr).strip()
