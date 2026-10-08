@@ -21,6 +21,8 @@ finds every `tests/test_*.py`, so a new test needs no change to CI.
 
 ## Limits
 
-Functions are taken by matching braces; one that is not found fails the test. Code with many dependencies is better
+Functions are taken by matching braces; one that is not found fails the test. `tools/test_light_storage.py` stays
+outside: it checks how the linker lays out symbols (ordinary and full-LTO, ELF and COFF), not code run against a fake
+world. Code with many dependencies is better
 compiled as whole files against stub headers. Whatever needs real maps or the whole game is checked in the game
 (offline: `debug.null_renderer`).

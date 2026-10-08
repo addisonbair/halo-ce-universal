@@ -74,8 +74,9 @@ def build(test, generated):
     for name, text in generated:
         (work / name).write_text(text)
     executable = work / test
+    # (warnings are errors, but the engine's own idioms stand: it assigns in conditions)
     command = [os.environ.get("CC", "clang"), "-m32", "-std=gnu99", "-O2", "-Wall", "-Werror", "-Wno-unused-function",
-               "-Wno-unused-variable", "-I", str(HARNESS / "include"), "-I", str(work),
+               "-Wno-unused-variable", "-Wno-parentheses", "-I", str(HARNESS / "include"), "-I", str(work),
                str(HARNESS / "tests" / f"{test}.c"), "-o", str(executable)]
     result = subprocess.run(command, capture_output=True, text=True)
     if result.returncode:
