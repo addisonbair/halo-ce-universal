@@ -139,8 +139,9 @@ static long biped_build(
 	return biped_handle;
 }
 
-/* the globals: how the player looks round, the interface's tags, the player's
-biped and its speeds, and falling damage */
+/* the globals: how the player looks round, what the rasterizer draws without
+a bitmap, the interface's tags, the player's biped and its speeds, and falling
+damage */
 static void globals_build(
 	long font_handle,
 	long strings_handle,
@@ -150,6 +151,11 @@ static void globals_build(
 	struct game_globals *globals;
 	struct game_globals_player_control *control;
 	struct game_globals_interface_tag_references *interface;
+	struct game_globals_rasterizer_data *rasterizer;
+	/* (by use: additive, black; multiplicative, white; detail, half grey;
+	vector, a flat normal) */
+	static unsigned long const default_colors[] = { 0xFF000000, 0xFFFFFFFF, 0xFF808080, 0xFF8080FF };
+	static unsigned long const white[] = { 0xFFFFFFFF };
 	struct game_globals_player_information *player;
 	real *look;
 	void *data;
@@ -167,12 +173,38 @@ static void globals_build(
 	control->look_default_yaw_rate = 100.f;
 	control->look_acceleration_time = 1.f;
 	control->look_acceleration_scale = 1.f;
-	cache_block(&globals->rasterizer_data, 1, sizeof(struct game_globals_rasterizer_data));
+	rasterizer = cache_block(&globals->rasterizer_data, 1, sizeof(*rasterizer));
+	/* (what a shader draws without its own bitmap, by the type it wants and the
+	use it puts it to: StageKit's own, each the colour that does nothing in that
+	use; and the bitmaps the rasterizer reads for lighting, a placeholder pixel
+	each until StageKit draws) */
+	cache_reference(&rasterizer->default_textures[0], prop_bitmap("stagekit\\default_2d", BITMAP_TYPE_2D,
+		NUMBEROF(default_colors), default_colors));
+	cache_reference(&rasterizer->default_textures[1], prop_bitmap("stagekit\\default_3d", BITMAP_TYPE_3D,
+		NUMBEROF(default_colors), default_colors));
+	cache_reference(&rasterizer->default_textures[2], prop_bitmap("stagekit\\default_cube_map",
+		BITMAP_TYPE_CUBE_MAP, NUMBEROF(default_colors), default_colors));
+	cache_reference(&rasterizer->distance_attenuation, prop_bitmap("stagekit\\distance_attenuation",
+		BITMAP_TYPE_2D, 1, white));
+	cache_reference(&rasterizer->vector_normalization, prop_bitmap("stagekit\\vector_normalization",
+		BITMAP_TYPE_CUBE_MAP, 1, &default_colors[3]));
 	interface = cache_block(&globals->interface_tag_references, 1, sizeof(*interface));
 	cache_reference(&interface->interface_tag_references[_interface_font_system], font_handle);
 	cache_reference(&interface->interface_tag_references[_interface_font_terminal], font_handle);
 	cache_reference(&interface->interface_tag_references[_interface_hud_globals], hud_handle);
 	cache_reference(&interface->interface_tag_references[_interface_string_list_localization], strings_handle);
+	/* (the interface's bitmaps, each read at its first, unchecked: the co-op HUD's
+	teammate marker, the motion sensor, the menus' plasma: one white pixel) */
+	{
+		static short const bitmaps[] = { _interface_bitmap_motion_sweep, _interface_bitmap_motion_sweep_mask,
+			_interface_bitmap_multiplayer_hud, _interface_bitmap_motion_blip, _interface_bitmap_iface_map1,
+			_interface_bitmap_iface_map2, _interface_bitmap_iface_map3 };
+		long handle = prop_bitmap("stagekit\\interface", BITMAP_TYPE_2D, 1, white);
+		unsigned long index;
+
+		for (index = 0; index < NUMBEROF(bitmaps); index++)
+			cache_reference(&interface->interface_tag_references[bitmaps[index]], handle);
+	}
 	player = cache_block(&globals->player_information, 1, sizeof(*player));
 	cache_reference(&player->player_unit, biped_handle);
 	/* (StageKit's own, a second: speeds in world units, accelerations in world
@@ -206,14 +238,15 @@ void stage_build(
 	char *code;
 	void *data;
 
-	cache_open();
+	cache_open(scenario->xbox_scenario != NULL);
 	/* the structure BSP, at the top of the tag cache: its header, then itself */
 	bsp_header = cache_bsp_allocate(sizeof(*bsp_header));
 	bsp = cache_bsp_allocate(sizeof(struct structure_bsp));
 	bsp_header->bsp = bsp;
 	bsp_header->signature = FOURCC('s', 'b', 's', 'p');
 
-	scenario_handle = cache_tag_new(FOURCC('s', 'c', 'n', 'r'), NONE, NONE, "stagekit\\void", sizeof(struct scenario),
+	scenario_handle = cache_tag_new(FOURCC('s', 'c', 'n', 'r'), NONE, NONE,
+		scenario->xbox_scenario ? scenario->xbox_scenario : "stagekit\\void", sizeof(struct scenario),
 		&data);
 	stage->scenario = data;
 	cache_set_scenario(scenario_handle);
@@ -241,6 +274,9 @@ void stage_build(
 	/* (the HUD an unarmed player's weapon HUD is: hud_weapon.c reads it unchecked) */
 	{
 		struct hud_globals_definition *hud = data;
+
+		/* (its messages' font, which the HUD reads unchecked while drawing) */
+		cache_reference(&hud->messaging.single_player_font, font_handle);
 
 		cache_reference(&hud->defaults.default_weapon_hud,
 			cache_tag_new(FOURCC('w', 'p', 'h', 'i'), NONE, NONE, "stagekit\\unarmed",
@@ -272,7 +308,7 @@ void stage_build(
 
 		player_start(stage, &middle);
 	}
-	stage->scenario->type = _scenario_type_solo;
+	stage->scenario->type = scenario->type;
 
 	bsp_reference = cache_block(&stage->scenario->structure_bsp_references, 1, sizeof(*bsp_reference));
 	cache_bsp_place(bsp_reference);

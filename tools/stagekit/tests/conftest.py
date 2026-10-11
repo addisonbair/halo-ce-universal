@@ -1,6 +1,6 @@
-"""StageKit's tests' fixtures (README.md): the generator, built once, and each scenario played (twice) and shared by
-every test that asks for it. A scenario's test module (test_<name>.py) says how it is played: PLAY, play()'s
-arguments."""
+"""StageKit's tests' fixtures (README.md): the generator, built once, and each scenario played (twice on one
+machine, once on two) and shared by every test that asks for it. A scenario's test module (test_<name>.py) says how
+it is played: PLAY, play()'s arguments, and to play it on two machines too, PLAY_NETWORKED, play_networked()'s."""
 
 import concurrent.futures
 import importlib
@@ -79,3 +79,9 @@ def play(stagekit, tmp_path_factory):
     """play(scenario, copy=0): its Session on one machine, played twice (copy 1: the same, tick for tick)"""
     return sessions(stagekit, tmp_path_factory, "PLAY", runner.play, copies=2)
 
+
+@pytest.fixture(scope="session")
+def play_networked(stagekit, tmp_path_factory):
+    """play_networked(scenario): its Session hosted by one machine and joined by another"""
+    return sessions(stagekit, tmp_path_factory, "PLAY_NETWORKED",
+                    lambda folder, **run: runner.play_networked(folder, stagekit, **run))

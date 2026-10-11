@@ -80,6 +80,55 @@ typedef char machine_placement_size_check[sizeof(struct machine_placement) == 0x
 
 /* ---------- public code */
 
+/* a bitmap tag of `count` bitmaps of one pixel each (six for a cube map),
+colors[index] the a8r8g8b8 colour of bitmap `index`, its pixels in the map */
+long prop_bitmap(
+	char const *name,
+	short type,
+	long count,
+	unsigned long const *colors)
+{
+	long faces = type == BITMAP_TYPE_CUBE_MAP ? 6 : 1;
+	/* (an Xbox cache's cube map has each face at 128 bytes, its texture's
+	D3DTEXTURE_CUBEFACE_ALIGNMENT, port/linux/src/xbox_textures.c; a Custom
+	Edition cache's has them one after another) */
+	long stride = faces > 1 && cache_xbox() ? 128 / sizeof(unsigned long) : 1;
+	long handle;
+	long index;
+	void *data;
+	struct bitmap_data *bitmaps;
+
+	handle = cache_tag_new(FOURCC('b', 'i', 't', 'm'), NONE, NONE, name, sizeof(struct bitmap_group), &data);
+	bitmaps = cache_block(&((struct bitmap_group *)data)->bitmaps, count, sizeof(*bitmaps));
+	/* (one sequence of them all, which widgets draw from) */
+	{
+		struct bitmap_group_sequence *sequence = cache_block(&((struct bitmap_group *)data)->sequences, 1,
+			sizeof(*sequence));
+
+		sequence->first_bitmap_index = 0;
+		sequence->bitmap_count = (short)count;
+	}
+	for (index = 0; index < count; index++)
+	{
+		struct bitmap_data *bitmap = &bitmaps[index];
+		unsigned long face_colors[6 * 128 / sizeof(unsigned long)] = { 0 };
+		long face;
+
+		for (face = 0; face < faces; face++)
+			face_colors[face * stride] = colors[index];
+		bitmap->signature = FOURCC('b', 'i', 't', 'm');
+		bitmap->width = bitmap->height = bitmap->depth = 1;
+		bitmap->type = type;
+		bitmap->format = BITMAP_FORMAT_A8R8G8B8;
+		bitmap->flags = FLAG(BITMAP_POWER_OF_TWO_BIT);
+		bitmap->pixels_size = faces * stride * sizeof(unsigned long);
+		bitmap->pixels_offset = cache_pixels(face_colors, bitmap->pixels_size);
+		bitmap->tag_index = handle;
+		bitmap->cache_block_index = NONE;
+	}
+	return handle;
+}
+
 void player_start(
 	struct stage *stage,
 	real_point3d const *position)
@@ -107,7 +156,9 @@ long prop_empty_model(
 
 	if (handle != NONE)
 		return handle;
-	handle = cache_tag_new(FOURCC('m', 'o', 'd', '2'), NONE, NONE, "stagekit\\empty", sizeof(struct model), &data);
+	/* (an Xbox cache's model is a 'mode', a Custom Edition cache's a 'mod2') */
+	handle = cache_tag_new(cache_xbox() ? FOURCC('m', 'o', 'd', 'e') : FOURCC('m', 'o', 'd', '2'), NONE, NONE,
+		"stagekit\\empty", sizeof(struct model), &data);
 	render = data;
 	root = cache_block(&render->nodes, 1, sizeof(*root));
 	strcpy(root->name, "root");

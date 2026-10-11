@@ -65,17 +65,24 @@ struct stagekit_scenario
 	char const *description;
 	/* places what the scenario adds to the stage (stage.c) */
 	void (*build)(struct stage *stage);
+	/* a map the game loads as its own (an Xbox cache, maps/<its last part>.map),
+	its scenario's path and type; none (a Custom Edition map) for a level */
+	char const *xbox_scenario;
+	short type;
 };
 
 /* ---------- prototypes/CACHE.C */
 
 /* the tag cache at the game's address for a Custom Edition map's tags; the
 structure BSP's room at its top */
-void cache_open(void);
+void cache_open(boolean xbox_cache);
+/* whether the map is an Xbox cache (the shell's, shell.c) */
+boolean cache_xbox(void);
 void *cache_allocate(unsigned long size);
 void *cache_block(struct tag_block *block, long count, unsigned long element_size);
 /* one more element at the block's end, zeroed */
 void *cache_block_add(struct tag_block *block, unsigned long element_size);
+long cache_pixels(void const *data, unsigned long size);
 void *cache_bsp_allocate(unsigned long size);
 void *cache_bsp_block(struct tag_block *block, long count, unsigned long element_size);
 /* a new tag of the group (and the groups it inherits from), its data zeroed */
@@ -88,8 +95,8 @@ void cache_no_reference(struct tag_reference *reference, unsigned long group);
 void cache_set_scenario(long handle);
 /* where the structure BSP is in the file, how big, and where in memory */
 void cache_bsp_place(struct scenario_structure_bsp_reference *reference);
-/* the map */
-void cache_write(char const *path, long *tag_count);
+/* the map, and the empty resource maps a network game asks for beside it */
+void cache_write(char const *path, char const *name, short scenario_type, long *tag_count);
 
 /* ---------- prototypes/COLLISION.C */
 
@@ -105,6 +112,20 @@ no scripts and a player start, with scenario's content in between */
 void stage_build(struct stage *stage, struct stagekit_scenario const *scenario);
 
 /* ---------- prototypes/PROPS.C */
+
+/* (bitmaps' types, format and flag, which bitmap_group.c keeps to itself) */
+enum
+{
+	BITMAP_TYPE_2D = 0,
+	BITMAP_TYPE_3D,
+	BITMAP_TYPE_CUBE_MAP,
+	BITMAP_FORMAT_A8R8G8B8 = 11,
+	BITMAP_POWER_OF_TWO_BIT = 0,
+};
+
+/* a bitmap tag of count bitmaps of one pixel each (six for a cube map), each
+the a8r8g8b8 colour colors[index], its pixels in the map */
+long prop_bitmap(char const *name, short type, long count, unsigned long const *colors);
 
 /* a player start at position (on what stands there), facing along x */
 void player_start(struct stage *stage, real_point3d const *position);

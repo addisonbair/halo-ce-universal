@@ -13,26 +13,31 @@ executable `HALO_GAME` names).
 ## The stage
 
 - `cache.c`: the cache it writes, its tags laid out where the game reads them, so their pointers are written as
-  they are: a Custom Edition cache (the format the port converts itself). Every reference left unset is made none by the groups' own schemas (`port/linux/game/tag_schema_*.c`): a
+  they are: a Custom Edition cache for a scenario's map (the format the port converts itself), an Xbox cache for the
+  shell's. Every reference left unset is made none by the groups' own schemas (`port/linux/game/tag_schema_*.c`): a
   map needs no correction.
 - `stage.c`: what every map has: the chamber (a floor in a box 1000 by 1000 by 100), the globals and interface, the
   players' biped, no scripts, a player start unless the scenario places its own.
 - `props.c`: what scenarios place (an obstacle, an elevator, the players' starts), each a function, any number of
   each.
 - `collision.c`: a box's collision, hollow (the chamber) or solid (a prop).
+- `shell.c`: the maps the game's shell plays from (`ui`, and `carousel`, the map a hosted game opens before its
+  own), so that a networked scenario needs no game data either.
 
 ## A scenario
 
 - `scenarios/<name>.c`: the props and players' starts it adds to the stage, and the names its cues call them by;
   `main.c` lists it.
-- `tests/test_<name>.py`: how it is played (`PLAY`: `play()`'s arguments, among them seconds, input and cues as
-  (second, console line)) and what it does, each test reading the `Session` it was played into: each player's place
-  each second, and the game's logs.
+- `tests/test_<name>.py`: how it is played (`PLAY`, and on two machines `PLAY_NETWORKED`: `play()`'s and
+  `play_networked()`'s arguments, among them seconds, input and cues as (second, console line)) and what it does,
+  each test reading the `Session` it was played into: each player's place each second, by machine, and the game's
+  logs.
 
 A scenario starts in the middle of things: its seconds, and its cues, which the game runs at their ticks
-(`debug.network_test_cues`), count from the first tick every player has a unit. The game skips the menus and runs a
-tick a frame (`debug.fixed_step`): faster than real time, and the same every time, tick for tick. The scenarios are
-played side by side.
+(`debug.network_test_cues`), count from the first tick every player has a unit. On one machine the game skips the
+menus and runs a tick a frame (`debug.fixed_step`): faster than real time, and the same every time, tick for tick.
+On two, one hosts it as a co-op game and the other joins through the shell's maps, at real time (each machine keeps
+its own clock), each receiving 100 ms late. The scenarios of each are played side by side.
 `test_stagekit.py` checks what every scenario does: its map needs no correction, and played, the game raises no
 exception, the player is in it, and played again it plays the same.
 
@@ -60,4 +65,6 @@ Fidelity: a scenario stages the engine's logic, not the game's feel. When a fiel
 ## Limits
 
 Linux only: the generator lays its tags out at the game's own (32-bit) addresses, and the runner gives each game its
-own loopback address (127.10.x.y). The game is logged once a game second, players only. Whatever needs the game's own maps is checked in the game.
+own loopback address (127.10.x.y on one machine, 127.40.x.y on two). The game is logged once a game second, players
+only. A client draws (its lobby's screen adds its player as it draws). A scenario's networked seconds take seconds
+of real time. Whatever needs the game's own maps is checked in the game.

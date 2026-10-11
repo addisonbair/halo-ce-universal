@@ -1,4 +1,5 @@
-"""StageKit's tests' tools (README.md): build the generator, write a scenario's map, validate it, and play it.
+"""StageKit's tests' tools (README.md): build the generator, write a scenario's map, validate it, and play it, on
+one machine (play) or hosted by one and joined by another (play_networked).
 """
 
 import os
@@ -19,6 +20,8 @@ SCENARIOS = sorted(path.stem for path in (STAGEKIT / "scenarios").glob("*.c"))
 TICKS_PER_SECOND = 30
 # the game's start and the map's loading, before it plays
 LOADING_SECONDS = 10
+# a hosted game's lobby: time for the client, started with the host, to find and join it
+LOBBY_SECONDS = 10
 
 
 def build(folder):
@@ -65,7 +68,7 @@ def run_tool(*command):
 
 
 def generate(program, scenario, folder):
-    """the scenario's map (custom_maps/void.map) under folder"""
+    """the scenario's map (custom_maps/void.map, with its empty resource maps) under folder"""
     maps = folder / "custom_maps"
     maps.mkdir(parents=True, exist_ok=True)
     run_tool(program, scenario, maps / "void.map")
@@ -76,6 +79,13 @@ def validate(map_path):
     """map_validate's corrections"""
     match = re.search(r": (\d+) corrections", run_tool(BUILD / "map_validate", map_path))
     return int(match.group(1))
+
+
+def shell(program, maps):
+    """the shell's maps (shell.c) in maps: what a networked scenario hosts and joins its game through"""
+    maps.mkdir(parents=True, exist_ok=True)
+    for name in ("ui", "carousel"):
+        run_tool(program, name, maps / f"{name}.map")
 
 
 class Session:
@@ -106,6 +116,12 @@ class Session:
         """where the player was each second it was in the game"""
         return [second[player] for second in self.seconds if player in second]
 
+    def player_on(self, machine):
+        """the player of machine (0 the host): players are numbered as they join"""
+        players = [player for player, on in self.machines.items() if on == machine]
+        assert players, f"no player of machine {machine} in {self.machines}"
+        return players[0]
+
     def deaths(self, player=0):
         """how many times the player has died, by the last second logged"""
         counts = re.findall(rf"player {player}: (?:\([^)]*\)[^|]*?|dead) s-?\d+ k\d+ d(\d+)", self.log)
@@ -131,13 +147,17 @@ def ticks(log_path):
     return result
 
 
-def launch(machine, input, address, broadcast, test, init="", **environment):
-    """the game in machine (a folder with its maps), with no window or sound, drawing nothing:
+def launch(machine, input, address, broadcast, test, init="", drawing=False, **environment):
+    """the game in machine (a folder with its maps), with no window or sound, drawing nothing unless drawing:
     debug.network_test test, the scripted input on the controller"""
-    (machine / "init.txt").write_text("debug_no_drawing 1\n" + init)
+    (machine / "init.txt").write_text(("" if drawing else "debug_no_drawing 1\n") + init)
     for name in ("debug.txt", "game.log"):
         (machine / name).unlink(missing_ok=True)
     (machine / "runtime").mkdir(mode=0o700, exist_ok=True)
+    # (no profile last used, as a game that remembers none: saved_game_files.c reads it every frame the menus
+    # show, logging each time it is not there)
+    (machine / "save/z").mkdir(parents=True, exist_ok=True)
+    (machine / "save/z/lastprof.txt").write_bytes(bytes(256))
     # (the game, and the libraries it finds beside it, in machine's own folder: a desktop build keeps its
     # config.toml beside the executable, so each machine has its own settings)
     for source in [GAME, *GAME.parent.glob("lib*.so*")]:
@@ -172,7 +192,7 @@ def cue_settings(cues, players):
 def play_slice(log_path, seconds, games):
     """the slice's start, once the game has played seconds of it; a game that stops first, or never gets there
     in time, fails the run with the end of its logs"""
-    deadline = time.monotonic() + LOADING_SECONDS + seconds + 60
+    deadline = time.monotonic() + LOADING_SECONDS + LOBBY_SECONDS + seconds + 60
     while time.monotonic() < deadline and all(game.poll() is None for game in games):
         text = log_path.read_text(errors="replace") if log_path.exists() else ""
         start = SLICE.search(text)
@@ -215,3 +235,31 @@ def play(folder, seconds, slot=0, cues=(), input="bot:1"):
         game.wait()
     return session(folder, start, seconds)
 
+
+def play_networked(folder, program, seconds, slot=0, cues=(), input="look:1", client_input="look:2",
+                   latency=100.0):
+    """the map hosted as a co-op game (folder) and joined by a second machine (folder/client), each receiving
+    latency milliseconds late (a round trip of twice it), both at real time (a client plays at the host's speed),
+    through the shell's maps (shell.c): the host's Session, which logs both players, and as its client, the
+    client's own (from its first second with both players in); the host runs the cues."""
+    client = folder / "client"
+    shell(program, folder / "maps")
+    shutil.copytree(folder / "custom_maps", client / "custom_maps", dirs_exist_ok=True)
+    shutil.copytree(folder / "maps", client / "maps", dirs_exist_ok=True)
+    network = dict(HALO_NETWORK_LATENCY=str(latency), HALO_NETWORK_TEST_START=str(LOBBY_SECONDS))
+    games = []
+    try:
+        games.append(launch(folder, input, f"127.40.{slot}.10", f"127.40.{slot}.11",
+                            "host:custom_maps\\void:coop", **network, **cue_settings(cues, 2)))
+        # (the client draws: its lobby's screen adds its player as it draws, network_test.c)
+        games.append(launch(client, client_input, f"127.40.{slot}.11",
+                            f"127.40.{slot}.10", "join", drawing=True, **network))
+        start = play_slice(folder / "game.log", seconds, games)
+    finally:
+        for game in games:
+            game.kill()
+            game.wait()
+    host = session(folder, start, seconds)
+    host.client = session(client, next((tick for tick, places, _ in ticks(client / "game.log")
+                                        if sum(place is not None for place in places.values()) >= 2), 0), seconds)
+    return host
